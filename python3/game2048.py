@@ -1,307 +1,301 @@
-#!/usr/bin/env python3
 #-*- coding: utf-8 -*-
 
 #clone of the 2048 game
 
-__app_name__= '2048'
-__version__= '0.1.0b'
-__author__= 'CLair-Loup Sergent (clsergent@free.fr)'
+__app_name__ = '2048'
+__version__ = '1.0'
+__author__ = 'clsergent'
+__license__ = 'EUPL 1.2'
 
-from PySide2 import QtGui, QtCore, QtWidgets
 import sys
+from PySide2 import QtGui, QtCore, QtWidgets
+import enum
 import random
-from math import cos, sin, tan
+from math import cos
 
-def TEST(*args, **kwds):
-    print("### test: ###", args, kwds)
+# Environment values
+COLOR_SEED = 100
+GRID_SIZE = 4
+RATIO_2_ON_4 = 3
+
+# TEXT
+LOST_TITLE = 'You lost'
+LOST_MESSAGE = 'You lost with a score of {score}\nDo you want to play again'
+ABOUT_TITLE = 'A propos'
+ABOUT_MESSAGE = f'{__app_name__}\nVersion: {__version__}\nAuthor: {__author__}\nLicense: {__license__}'
 
 
 class Engine(object):
-    #what makes the game work
-    LEFT= 0
-    RIGHT= 1
-    UP= 2
-    DOWN= 3
-    def __init__(self, size= 4):
-        self._size= size
+    """ Game core """
+    class Move(enum.Enum):
+        LEFT = 0
+        RIGHT = 1
+        UP = 2
+        DOWN = 3
+
+    def __init__(self, size=4):
+        self.gridSize = size
         self.start()
-    
-    def get(self, x, y):
-        if (0 <= x <= self._size-1) and (0 <= y <= self._size-1):
+
+    @property
+    def score(self):
+        return self._score
+
+    def _compose(self, x: int, y: int, side: Move):
+        if side is None or side is Engine.Move.LEFT:
+            return x, y
+        if side is Engine.Move.RIGHT:
+            return self.gridSize - 1 - x, y
+        elif side is Engine.Move.UP:
+            return self.gridSize - 1 - y, x
+        elif side is Engine.Move.DOWN:
+            return y, self.gridSize - 1 - x
+
+    def getGridItem(self, x, y, side=None) -> int:
+        x, y = self._compose(x, y, side)
+
+        if (0 <= x <= self.gridSize - 1) and (0 <= y <= self.gridSize - 1):
             return self._grid[x][y]
         raise OverflowError
     
-    def set(self, x, y, value):
-        if (0 <= x <= self._size-1) and (0 <= y <= self._size-1):
+    def setGridItem(self, x, y, value: int, side=None):
+        x, y = self._compose(x, y, side)
+
+        if (0 <= x <= self.gridSize - 1) and (0 <= y <= self.gridSize - 1):
             self._grid[x][y]= value
-            return
-        raise OverflowError
+        else:
+            raise OverflowError
             
-    def add(self):
-        empty_squares= []
-        for x in range(self._size):
-            for y in range(self._size):
-                square= self.get(x,y)
+    def newGridItem(self):
+        """ add a new square"""
+        empty_squares = []
+
+        for x in range(self.gridSize):
+            for y in range(self.gridSize):
+                square= self.getGridItem(x, y)
                 if square == 0:
                     empty_squares.append((x,y))
+
+        if len(empty_squares) > 0:
+            square = random.choice(empty_squares)
+            self.setGridItem(square[0], square[1], random.choice((2,) * RATIO_2_ON_4 + (4,)))
+            return True
         else:
-            square= random.choice(empty_squares)
-            self.set(square[0], square[1], random.choice((2,2,2,2,2,2,2,2,4)))
+            return False
     
     def start(self):
-        self._score= 0
-        self._grid= [[0]*self._size for i in range(self._size)]
-        self.add()
-    
-    def get_score(self):
-        return self._score
-    
-    def end(self):
-        #test wether the game is over or not (which happends if no 0 remains)
-        for x in range(self._size):
-            if 0 in self._grid[x]:
+        self._score = 0
+        self._grid = [[0] * self.gridSize for i in range(self.gridSize)]
+        self.newGridItem()
+
+    def testEnd(self):
+        # test whether the game is over or not (which happens if no 0 remains)
+        for move in self.Move:
+            if self.moveGridItems(move, apply=False) or self.sumGridItems(move, apply=False):
                 return False
         return True
     
-    def _composed_get(self, x, y, side):
-            if side is Engine.LEFT:
-                return self.get(x, y)
-            elif side is Engine.RIGHT:
-                return self.get(self._size-1-x, y)
-            elif side is Engine.UP:
-                return self.get(self._size-1-y, x)
-            elif side is Engine.DOWN:
-                return self.get(y, self._size-1-x)
-            
-    def _composed_set(self, x, y, value, side):
-        if side is Engine.LEFT:
-            return self.set(x, y, value)
-        elif side is Engine.RIGHT:
-            return self.set(self._size-1-x, y, value)
-        elif side is Engine.UP:
-            return self.set(self._size-1-y, x, value)
-        elif side is Engine.DOWN:
-            return self.set(y, self._size-1-x, value)
-    
-    def slide(self, side):
-        #slide squares depending on the side
-        #return wether the grid was modified or not
+    def moveGridItems(self, side, apply=True):
+        """ move items depending on the side, and return whether the grid was modified or not """
         touched= False
-        for y in range(self._size):
-            row=[]
-            for x in range(self._size):
-                row.append(self._composed_get(x, y, side))
-            old_row= [i for i in row]
+        for y in range(self.gridSize):
+            row = list()
+            for x in range(self.gridSize):
+                row.append(self.getGridItem(x, y, side))
+            oldRow = list(row)
             while 0 in row:
                 row.remove(0)
-            row+=[0]*(self._size-len(row))
+            row += [0]*(self.gridSize - len(row))
             
-            if old_row != row:
+            if oldRow != row:
                 touched= True
-                
-            for x in range(self._size):
-                self._composed_set(x, y, row[x], side)
+
+            if apply is True:
+                for x in range(self.gridSize):
+                    self.setGridItem(x, y, row[x], side)
         return touched
                 
-    def sum(self, side):
-        #sum identical squares depending on the side
-        #return wether the grid was modified or not
-        touched= False
-        for y in range(self._size):
-            row=[]
-            for x in range(self._size):
-                row.append(self._composed_get(x, y, side))
-            xx= 0
-            old_row= [i for i in row]
+    def sumGridItems(self, side, apply=True):
+        """ sum identical squares depending on the side, and return whether the grid was modified or not """
+        touched = False
+        for y in range(self.gridSize):
+            row = list()
+            for x in range(self.gridSize):
+                row.append(self.getGridItem(x, y, side))
+
+            oldRow= [i for i in row]
+            xx = 0
             while xx < len(row)-1:
                 if row[xx] == row[xx+1]:
-                    row[xx]*=2
-                    row.pop(xx+1)
-                    self._score+=row[xx]
-                xx+=1
+                    row[xx] *= 2
+                    row.pop(xx + 1)
+                    self._score += row[xx]
+                xx += 1
             
-            row+=[0]*(self._size-len(row))
-            if old_row != row:
+            row+=[0]*(self.gridSize - len(row))
+            if oldRow != row:
                 touched= True
-                
-            for x in range(self._size):
-                self._composed_set(x, y, row[x], side)
+
+            if apply is True:
+                for x in range(self.gridSize):
+                    self.setGridItem(x, y, row[x], side)
         return touched
-                        
-    def get_size(self):
-        return self._size
-    
-    def print_(self, compose= 0):
-        #for debbugging via terminal
-        print('-'*23)
-        for y in range(self._size):
-            print('|', end=' ')
-            for x in range(self._size):
-                print(str(self._composed_get(x, y, compose)).rjust(4), end=' ')
-            print('|')
-        print('-'*23)
-    size= property(get_size)
-    score= property(get_score)
+
 
 class Square(QtWidgets.QGraphicsItem):
-    #one of the 16 squares that compose the game
-    class coordinnates(object):
-        def __init__(self, x, y):
-            self.x= x
-            self.y= y
-        
-    def __init__(self, parent, x, y):
+    """ A graphic square """
+    def __init__(self, parent: QtWidgets.QGraphicsView, x: int, y: int):
+        QtWidgets.QGraphicsItem.__init__(self)
         self._parent= parent
-        self.coords= Square.coordinnates(x, y)
-        QtWidgets.QGraphicsItem.__init__(self, scene= self._parent.scene)
+        self.x = x
+        self.y = y
     
-    def get_value(self):
-        #return the value for the square
-        value= self._parent.engine.get(self.coords.x, self.coords.y)
+    def getValue(self) -> str:
+        """ return a string representation of the square value """
+        value= self._parent.engine.getGridItem(self.x, self.y)
         if value > 0:
             return str(value)
         return ''
     
-    def get_color(self):
-        value= self._parent.engine.get(self.coords.x, self.coords.y)
-        return int(abs(cos(value)*256**3) + abs(sin(value +123)*256**2) + abs(tan(value + 123)*256))
-        #return int(abs(sin(value)*256**3) + abs(cos(value +123)*256**2) + abs(tan(value + 123)*256))
-        #return int(abs(cos(value+123)*256**3) + abs(tan(value+123)*256**2) + abs(sin(value)*256))
+    def getColor(self):
+        """ return a RGB color based on the square value"""
+        value= self._parent.engine.getGridItem(self.x, self.y)
+        # return int(abs(cos(value) * 256**3) + abs(sin(value+seed) * 256**2) + abs(tan(value+seed) * 256))
+        return int(abs(cos(value + COLOR_SEED) * 256 ** 3))
         
     def boundingRect(self):
-        size= self._parent.square_size()
-        return QtCore.QRectF(self.coords.x*size[0], self.coords.y*size[1], size[0], size[1])
-    
+        size= self._parent.squareSize()
+        return QtCore.QRectF(self.x*size[0], self.y*size[1], size[0], size[1])
+
+    def innerRect(self):
+        size = self._parent.squareSize()
+        return QtCore.QRectF(self.x * size[0]+2, self.y * size[1]+2, size[0]-2, size[1]-2)
+
     def paint(self, painter, option, widget):
-        size= self._parent.square_size()
-        
-        painter.setOpacity(0.7)
-        painter.setBrush(QtGui.QColor(self.get_color()))
-        painter.drawRoundedRect(self.coords.x*size[0]+2, self.coords.y*size[1]+2, size[0]-2, size[1]-2, 10, 10)
-        
+        size = self._parent.squareSize()
+
+
+        # paint the square
+        painter.setOpacity(0.5)
+        painter.setBrush(QtGui.QColor(self.getColor()))
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+        painter.drawRoundedRect(self.innerRect(), 10, 10)
+
+        # paint text
         painter.setOpacity(1)
-        painter.setFont(QtGui.QFont("SansSerif", (size[0] + size[1])//4))
-        painter.drawText(self.coords.x*size[0]+1, self.coords.y*size[1]+1,
-                         size[0]-1, size[1]-1,
-                         QtCore.Qt.AlignCenter, self.get_value())
-    
-    
+        painter.setFont(QtGui.QFont("Arial", (size[0] + size[1])//4))
+        painter.drawText(self.x * size[0] + 1, self.y * size[1] + 1,
+                         size[0] - 1, size[1] - 1,
+                         QtCore.Qt.AlignCenter, self.getValue())
+
+
 class Frame(QtWidgets.QGraphicsView):
-    #main window
-    def __init__(self, scene):
+    """ Game main window """
+    def __init__(self, scene=None, grid_size=4):
         QtWidgets.QGraphicsView.__init__(self)
+        self.setWindowFlags(QtCore.Qt.Window)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground)
+
+        self.application = QtWidgets.QApplication.instance()
+
         if type(scene) != QtWidgets.QGraphicsScene:
-            self._scene= QtWidgets.QGraphicsScene()
+            self.scene= QtWidgets.QGraphicsScene()
         else:
-            self._scene= scene
-        self._engine= Engine()
-        
-        #self.setRenderHint(QtGui.QPainter.Antialiasing)
+            self.scene = scene
+
+        self.engine = Engine(grid_size)
+
+        # Window settings
+        self.setRenderHint(QtGui.QPainter.Antialiasing)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setAlignment(QtCore.Qt.AlignLeft|QtCore.Qt.AlignTop)
+        self.setMinimumSize(100*self.engine.gridSize,75*self.engine.gridSize)
+        self.resize(100*self.engine.gridSize,75*self.engine.gridSize)
+        self.squares = [[0] * self.engine.gridSize for i in range(self.engine.gridSize)]
+
+        for x in range(self.engine.gridSize):
+            for y in range(self.engine.gridSize):
+                self.squares[x][y]= Square(self, x, y)
+                self.scene.addItem(self.squares[x][y])
+
+        self.setScene(self.scene)
         self.setWindowTitle("2048")
-        self.resize(400, 300)
-        
-        self._squares= [[0]*self._engine.size for i in range(self._engine.size)]
-        
-        for x in range(self._engine.size):
-            for y in range(self._engine.size):
-                self._squares[x][y]= Square(self, x, y)
-                self._scene.addItem(self._squares[x][y])
-        
-        self.setScene(self._scene)
-        
-        self._menubar = QtWidgets.QMenuBar(self)
-        fileMenu = self._menubar.addMenu('&File')
-        self._about_action = QtWidgets.QAction('&About', self)
-        self._about_action.triggered.connect(self.about)
-        fileMenu.addAction(self._about_action)
+        self.update()
+
+        # Action settings
+        self._menuBar = QtWidgets.QMenuBar(self)
+        self._fileMenu = self._menuBar.addMenu('&File')
+        self._aboutAction = QtWidgets.QAction('&About', self)
+        self._aboutAction.triggered.connect(self.about)
+        self._fileMenu.addAction(self._aboutAction)
         
         self._up= QtWidgets.QAction(self)
         self._up.setShortcut('Up')
-        self._up.triggered.connect(lambda: self.move(Engine.UP))
+        self._up.triggered.connect(lambda: self.move(Engine.Move.UP))
+        self.addAction(self._up)
         
         self._down= QtWidgets.QAction(self)
         self._down.setShortcut('Down')
-        self._down.triggered.connect(lambda: self.move(Engine.DOWN))
+        self._down.triggered.connect(lambda: self.move(Engine.Move.DOWN))
+        self.addAction(self._down)
         
         self._left= QtWidgets.QAction(self)
         self._left.setShortcut('Left')
-        self._left.triggered.connect(lambda: self.move(Engine.LEFT))
+
+        self._left.triggered.connect(lambda: self.move(Engine.Move.LEFT))
+        self.addAction(self._left)
         
         self._right= QtWidgets.QAction(self)
         self._right.setShortcut('Right')
-        self._right.triggered.connect(TEST)
-    
+        self._right.triggered.connect(lambda: self.move(Engine.Move.RIGHT))
+        self.addAction(self._right)
+
+        self.show()
+
     def update(self):
-        for x in range(self._engine.size):
-            for y in range(self._engine.size):
-                self._squares[x][y].update()
-        QtWidgets.QGraphicsView.update(self)
-    
-    def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Up:
-            self.move(Engine.UP)
-        elif event.key() == QtCore.Qt.Key_Down:
-            self.move(Engine.DOWN)
-        elif event.key() == QtCore.Qt.Key_Left:
-            self.move(Engine.LEFT)
-        elif event.key() == QtCore.Qt.Key_Right:
-            self.move(Engine.RIGHT)
-        else:
-            super(Frame, self).keyPressEvent(event)
-    
-    def update_title(self):
-        if self._engine.score > 0:
-            self.setWindowTitle("2048 - %i" %self._engine.score)
+        self.updateIcon()
+        self.scene.update()
+
+    def updateTitle(self):
+        if self.engine.score > 0:
+            self.setWindowTitle("2048 - %i" % self.engine.score)
         else:
             self.setWindowTitle("2048")
+
+    def updateIcon(self):
+        px = self.grab(self.rect())
+        self.application.setWindowIcon(QtGui.QIcon(px))
     
-    def square_size(self):
-        #return the (length, height) that any square should have
-        return self.width()//self._engine.size, self.height()//self._engine.size
+    def squareSize(self):
+        """ return the graphic size of a square """
+        return self.width() // self.engine.gridSize, self.height() // self.engine.gridSize
     
-    def move(self, side):
-        #move the elements according to the given side
-        add= self.engine.slide(side)
-        add|= self._engine.sum(side)
-        if add is True:
-            self._engine.add()
-        if self._engine.end() is True:
-            reply = QtWidgets.QMessageBox.information(self, 'Perdu...', "Vous avez perdu avec le score de %i.\nVoulez-vous recommencer" %self._engine.score,
-                                           QtWidgets.QMessageBox.Yes|QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes)
+    def move(self, side: Engine.Move):
+        """ move the elements according to the given side """
+        if self.engine.moveGridItems(side) | self.engine.sumGridItems(side):
+            self.engine.newGridItem()
+
+        if self.engine.testEnd():
+            reply = QtWidgets.QMessageBox.information(self,LOST_TITLE, LOST_MESSAGE.format(score=self.engine.score),
+                                                      QtWidgets.QMessageBox.Yes|QtWidgets.QMessageBox.No,
+                                                      QtWidgets.QMessageBox.Yes)
 
             if reply == QtWidgets.QMessageBox.Yes:
-                self._engine.start()
+                self.engine.start()
             else:
-                QtCore.QCoreApplication.instance().quit()
-        self.update_title()
+                self.application.quit()
+        self.updateTitle()
 
         self.update()
     
-    def about(self, event= None):
-        #return info about the application
-        reply = QtWidgets.QMessageBox.about(self, 'A propos',
-                                        "%s\nVersion %s\n Copyright %s\nGPL License v3"
-                                        %(__app_name__, __version__, __author__))
-    
-    
-    def get_scene(self):
-        return self._scene
-    
-    def get_engine(self):
-        return self._engine
-    
-    scene= property(get_scene)
-    engine= property(get_engine)
-
-    
+    def about(self, event= None) -> None:
+        """  provide information about the application """
+        QtWidgets.QMessageBox.about(self, ABOUT_TITLE, ABOUT_MESSAGE)
 
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    w= Frame(None)
-    w.show()
-    print('ready')
+    w= Frame(grid_size=GRID_SIZE)
     sys.exit(app.exec_())
