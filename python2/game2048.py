@@ -5,7 +5,7 @@
 
 __app_name__= u'2048'
 __version__= u'0.1.0b'
-__author__= u'CLair-Loup Sergent (clsergent@free.fr)'
+__author__= u'clsergent'
 
 from PySide import QtGui, QtCore
 import sys
